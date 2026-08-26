@@ -603,7 +603,7 @@
       loadLogForSelectedDate();
     });
 
-    // BERECHNUNG KALORIEN AUTOMATISCH NACH SPORTART
+    // BERECHNUNG KALORIEN AUTOMATISCH NACH SPORTART (ÜBERARBEITET UND OPTIMIERT)
     function recalculateAutoCalories() {
       const duration = parseFloat(document.getElementById('sportDuration').value) || 0;
       const distance = parseFloat(document.getElementById('sportDistance').value) || 0;
@@ -615,17 +615,18 @@
         return;
       }
 
-      let met = 5.0; // standardmäßig moderat
+      let met = 4.0; // standardmäßig gemütliches Alltags-Tempo
       
       if (type === 'Fahrrad fahren') {
         if (distance > 0 && duration > 0) {
           const speed = (distance / (duration / 60));
-          if (speed < 15) met = 4.0;
-          else if (speed < 20) met = 6.8;
-          else if (speed < 25) met = 8.0;
-          else met = 10.0;
+          if (speed < 15) met = 4.0;        // Entspanntes Fahren (< 15 km/h)
+          else if (speed < 19) met = 5.8;   // Moderates Tempo (15 - 19 km/h)
+          else if (speed < 22) met = 6.8;   // Zügiges Tempo (19 - 22 km/h)
+          else if (speed < 26) met = 8.0;   // Sportliches Tempo (22 - 26 km/h)
+          else met = 10.0;                  // Sehr schnell / Rennrad (>= 26 km/h)
         } else {
-          met = 6.8;
+          met = 4.0; // Standard ohne Distanzangabe ist entspanntes Tempo
         }
       } else if (type === 'Laufen') {
         if (distance > 0 && duration > 0) {
@@ -638,7 +639,7 @@
           met = 9.8;
         }
       } else if (type === 'Schwimmen') {
-        met = 7.0;
+        met = 6.0;
       } else if (type === 'Krafttraining') {
         met = 5.0;
       } else if (type === 'Spaziergang') {
@@ -647,9 +648,12 @@
         met = 4.0;
       }
 
-      // MET Formel: Cal = MET * Weight(kg) * Duration(hours)
-      const calculatedCals = Math.round(met * userW * (duration / 60));
-      document.getElementById('sportCalories').placeholder = `~${calculatedCals} kcal (Auto)`;
+      // Netto-Kalorienformel (zieht den Ruheverbrauch während der Aktivität ab)
+      const grossCals = met * userW * (duration / 60);
+      const bmrCals = 1.0 * userW * (duration / 60); // Ruheverbrauch (ca. 1 MET)
+      const netCals = Math.round(grossCals - bmrCals);
+      
+      document.getElementById('sportCalories').placeholder = `~${netCals} kcal (Auto)`;
     }
 
     function getTargetsForDate(dateStr, weightVal) {
