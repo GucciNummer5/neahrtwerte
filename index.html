@@ -159,7 +159,7 @@
       </div>
     </section>
 
-    <!-- KI REZEPT-VORSCHLÄGE (MIT AUSWAHL BISHERIGER MAHLZEITEN) -->
+    <!-- KI REZEPT-VORSCHLÄGE (MIT FREITEXT & VOLLSTÄNDIGER ANLEITUNG) -->
     <section id="cardSuggestions" class="rounded-2xl p-5 border shadow-xl space-y-3 transition-colors">
       <div class="flex justify-between items-center">
         <h2 class="text-sm font-bold uppercase tracking-wider">💡 KI-Mahlzeitenvorschläge</h2>
@@ -190,17 +190,21 @@
           </label>
         </div>
       </div>
-      
-      <p class="text-xs opacity-75">Vorschlag für deine nächste ausstehende Mahlzeit:</p>
+
+      <!-- Wünsche & Präferenzen Eingabe -->
+      <div class="space-y-1">
+        <label class="text-xs font-semibold block opacity-80">💭 Worauf hast du heute Bock? (optional)</label>
+        <input type="text" id="recipePreferencesInput" placeholder="Z. B. Hähnchen, schnell unter 15 Min, asiatisch, süß..." class="w-full border p-2.5 rounded-xl text-xs outline-none transition-colors">
+      </div>
       
       <button id="generateSuggestionsBtn" class="w-full py-2.5 rounded-xl font-bold text-xs shadow-md transition border flex items-center justify-center gap-2">
-        <span>✨</span> Passendes Rezept vorschlagen
+        <span>✨</span> Rezept vorschlagen
       </button>
 
       <!-- Loading Indicator -->
       <div id="suggestionsLoading" class="hidden py-4 text-center space-y-2">
         <div class="inline-block animate-spin rounded-full h-6 w-6 border-3 border-emerald-500 border-t-transparent"></div>
-        <p class="text-xs opacity-70">Berechne die optimale nächste Mahlzeit...</p>
+        <p class="text-xs opacity-70">Generiere ein passendes Rezept mit Zubereitung...</p>
       </div>
 
       <!-- Vorschlag Anzeige Container -->
@@ -526,6 +530,7 @@
       const inputs = [
         document.getElementById('dailyWeightInput'),
         document.getElementById('aiNoteInput'),
+        document.getElementById('recipePreferencesInput'),
         document.getElementById('userWeight'),
         document.getElementById('userHeight'),
         document.getElementById('userAge'),
@@ -1046,7 +1051,7 @@
       document.getElementById('fatBar').style.width = `${Math.min(100, (eatenF / targets.fat) * 100)}%`;
     }
 
-    // KI-REZEPT VORSCHLÄGE BERECHNUNG (ANGEPASST MIT MAHLZEITEN-CHECK)
+    // KI-REZEPT VORSCHLÄGE BERECHNUNG (MIT FREITEXT, REROLL & VOLLSTÄNDIGER ZUBEREITUNG)
     async function fetchMealSuggestions() {
       if (!profile.apiKey) {
         alert("Bitte trage zuerst deinen Gemini API Key unter 'Profil' ein.");
@@ -1071,23 +1076,19 @@
       const remC = Math.max(0, targets.carbs - eatenC);
       const remF = Math.max(0, targets.fat - eatenF);
 
-      // Status der Checkboxen ermitteln
       const hadBreakfast = document.getElementById('hadBreakfast').checked;
       const hadLunch = document.getElementById('hadLunch').checked;
       const hadSnack = document.getElementById('hadSnack').checked;
       const hadDinner = document.getElementById('hadDinner').checked;
 
-      // Noch ausstehende Haupt-Mahlzeiten zählen
       let remainingMealsCount = 0;
       if (!hadBreakfast) remainingMealsCount++;
       if (!hadLunch) remainingMealsCount++;
       if (!hadSnack) remainingMealsCount++;
       if (!hadDinner) remainingMealsCount++;
 
-      // Falls alles angehakt ist, gehen wir von 1 ausstehenden Snack aus
       if (remainingMealsCount === 0) remainingMealsCount = 1;
 
-      // Bestimmen, welche Mahlzeit als NÄCHSTES ansteht
       let nextMealName = "Mahlzeit";
       if (!hadBreakfast) nextMealName = "Frühstück";
       else if (!hadLunch) nextMealName = "Mittagessen";
@@ -1095,28 +1096,31 @@
       else if (!hadDinner) nextMealName = "Abendessen";
       else nextMealName = "Spät-Snack";
 
-      // Kalorien- & Makro-Budget pro verbleibender Mahlzeit aufteilen
       const targetCalsForMeal = Math.round(remCals / remainingMealsCount);
       const targetPForMeal = Math.round(remP / remainingMealsCount);
       const targetCForMeal = Math.round(remC / remainingMealsCount);
       const targetFForMeal = Math.round(remF / remainingMealsCount);
 
-      const prompt = `Du bist ein Fitness-Ernährungsberater. Schlage mir EIN realistisches, einfach zuzubereitendes Gericht für die folgende Kategorie vor: "${nextMealName}".
+      const userPreferences = document.getElementById('recipePreferencesInput').value.trim();
+
+      let prompt = `Du bist ein erfahrener Fitness-Koch. Erstelle ein vollständiges, genaues Rezept für die Mahlzeit: "${nextMealName}".
 
 Kontext & Budgetierung:
 - Geplante Mahlzeit: ${nextMealName}
-- Bereits gegessene Mahlzeiten heute: ${hadBreakfast ? 'Frühstück, ' : ''}${hadLunch ? 'Mittagessen, ' : ''}${hadSnack ? 'Snack, ' : ''}${hadDinner ? 'Abendessen' : 'keine'}
-- Verbleibende ausstehende Mahlzeiten heute: ${remainingMealsCount}
-- Gesamtes verbleibendes Tages-Kalorienbudget: ${remCals} kcal (Rest-Protein: ${remP}g)
+- Bereits gegessene Mahlzeiten: ${hadBreakfast ? 'Frühstück, ' : ''}${hadLunch ? 'Mittagessen, ' : ''}${hadSnack ? 'Snack, ' : ''}${hadDinner ? 'Abendessen' : 'keine'}
+- Verbleibende ausstehende Mahlzeiten: ${remainingMealsCount}
 
-Zielwerte für diese EINE Mahlzeit (${nextMealName}):
+Zielwerte für dieses Gericht (~${targetCalsForMeal} kcal):
 - Kalorien: ca. ${targetCalsForMeal} kcal
 - Protein: ca. ${targetPForMeal}g
 - Kohlenhydrate: ca. ${targetCForMeal}g
-- Fett: ca. ${targetFForMeal}g
+- Fett: ca. ${targetFForMeal}g`;
 
-Wichtig: Die Portionsgröße und Nährwerte des vorgeschlagenen Gerichts MÜSSEN realistisch an das Zielwert-Budget für diese eine Mahlzeit (~${targetCalsForMeal} kcal) angepasst sein, anstatt das gesamte verbleibende Tagesbudget in eine Mahlzeit zu packen!
+      if (userPreferences) {
+        prompt += `\n\nBesondere Kundenwünsche/Präferenzen für das Gericht: "${userPreferences}". Berücksichtige dies unbedingt beim Rezept!`;
+      }
 
+      prompt += `\n\nGib eine vollständige Zutatenliste mit exakten Mengenangaben (z.B. als Liste "200g Hähnchenbrust, 1 EL Olivenöl...") sowie eine Schritt-für-Schritt-Zubereitungsanleitung an.
 Gib das Ergebnis ausschließlich als JSON zurück.`;
 
       try {
@@ -1132,13 +1136,21 @@ Gib das Ergebnis ausschließlich als JSON zurück.`;
                 properties: {
                   meal: { type: "STRING" },
                   description: { type: "STRING" },
-                  ingredients: { type: "STRING" },
+                  ingredients: {
+                    type: "ARRAY",
+                    items: { type: "STRING" }
+                  },
+                  instructions: {
+                    type: "ARRAY",
+                    items: { type: "STRING" }
+                  },
+                  prepTime: { type: "STRING" },
                   calories: { type: "INTEGER" },
                   protein: { type: "INTEGER" },
                   carbs: { type: "INTEGER" },
                   fat: { type: "INTEGER" }
                 },
-                required: ["meal", "description", "ingredients", "calories", "protein", "carbs", "fat"]
+                required: ["meal", "description", "ingredients", "instructions", "prepTime", "calories", "protein", "carbs", "fat"]
               }
             }
           })
@@ -1149,25 +1161,29 @@ Gib das Ergebnis ausschließlich als JSON zurück.`;
 
         const recipe = JSON.parse(data.candidates[0].content.parts[0].text);
 
+        const ingredientsHtml = recipe.ingredients.map(ing => `<li class="flex items-center gap-1.5"><span class="text-emerald-400">•</span> ${ing}</li>`).join('');
+        const instructionsHtml = recipe.instructions.map((step, idx) => `
+          <div class="flex gap-2">
+            <span class="font-bold text-emerald-400 text-xs">${idx + 1}.</span>
+            <span>${step}</span>
+          </div>
+        `).join('');
+
         suggestionsContainer.innerHTML = `
-          <div class="p-4 rounded-xl border space-y-3 bg-slate-900/40">
+          <div class="p-4 rounded-xl border space-y-4 bg-slate-900/40">
             <div>
-              <div class="flex justify-between items-start">
+              <div class="flex justify-between items-start gap-2">
                 <div>
-                  <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block mb-0.5">Vorschlag für: ${nextMealName}</span>
+                  <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block mb-0.5">Vorschlag für: ${nextMealName} (${recipe.prepTime})</span>
                   <h3 class="font-black text-base text-emerald-400">${recipe.meal}</h3>
                 </div>
-                <span class="text-xs font-black px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">${recipe.calories} kcal</span>
+                <span class="text-xs font-black px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">${recipe.calories} kcal</span>
               </div>
               <p class="text-xs opacity-70 mt-1">${recipe.description}</p>
             </div>
 
-            <div class="text-xs space-y-1 border-t pt-2 border-slate-700/50">
-              <span class="font-bold block text-[10px] uppercase tracking-wider opacity-60">Zutaten / Zubereitung</span>
-              <p class="opacity-90 italic">${recipe.ingredients}</p>
-            </div>
-
-            <div class="grid grid-cols-3 gap-2 text-center text-xs pt-1">
+            <!-- Nährwert-Übersicht -->
+            <div class="grid grid-cols-3 gap-2 text-center text-xs">
               <div class="p-1.5 rounded-lg border border-slate-700 bg-slate-950/50">
                 <span class="block text-[10px] opacity-60">Protein</span>
                 <span class="font-bold text-blue-400">${recipe.protein}g</span>
@@ -1182,9 +1198,31 @@ Gib das Ergebnis ausschließlich als JSON zurück.`;
               </div>
             </div>
 
-            <button onclick="addSuggestedMeal('${recipe.meal.replace(/'/g, "\\'")}', ${recipe.calories}, ${recipe.protein}, ${recipe.carbs}, ${recipe.fat})" class="w-full py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center justify-center gap-1.5 shadow-lg active:scale-95">
-              <span>➕</span> In Tages-Log eintragen
-            </button>
+            <!-- Zutaten -->
+            <div class="text-xs space-y-1.5 border-t pt-3 border-slate-700/50">
+              <span class="font-bold block text-[10px] uppercase tracking-wider opacity-60">🛒 Zutaten & Mengen</span>
+              <ul class="grid grid-cols-1 gap-1 text-xs opacity-90">
+                ${ingredientsHtml}
+              </ul>
+            </div>
+
+            <!-- Zubereitung -->
+            <div class="text-xs space-y-2 border-t pt-3 border-slate-700/50">
+              <span class="font-bold block text-[10px] uppercase tracking-wider opacity-60">👨‍🍳 Zubereitung</span>
+              <div class="space-y-1.5 opacity-90">
+                ${instructionsHtml}
+              </div>
+            </div>
+
+            <!-- Action Buttons: Eintragen & Reroll -->
+            <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-700/50">
+              <button onclick="fetchMealSuggestions()" class="col-span-1 py-2.5 rounded-xl font-bold text-xs border border-slate-600 hover:bg-slate-700/40 transition flex items-center justify-center gap-1 active:scale-95">
+                <span>🎲</span> Reroll
+              </button>
+              <button onclick="addSuggestedMeal('${recipe.meal.replace(/'/g, "\\'")}', ${recipe.calories}, ${recipe.protein}, ${recipe.carbs}, ${recipe.fat})" class="col-span-2 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center justify-center gap-1.5 shadow-lg active:scale-95">
+                <span>➕</span> In Log eintragen
+              </button>
+            </div>
           </div>
         `;
 
