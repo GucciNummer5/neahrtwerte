@@ -159,7 +159,7 @@
       </div>
     </section>
 
-    <!-- KI REZEPT-VORSCHLÄGE (MIT FREITEXT & VOLLSTÄNDIGER ANLEITUNG) -->
+    <!-- KI REZEPT-VORSCHLÄGE (MIT DIREKTER ANPASSUNGSFUNKTION) -->
     <section id="cardSuggestions" class="rounded-2xl p-5 border shadow-xl space-y-3 transition-colors">
       <div class="flex justify-between items-center">
         <h2 class="text-sm font-bold uppercase tracking-wider">💡 KI-Mahlzeitenvorschläge</h2>
@@ -204,7 +204,7 @@
       <!-- Loading Indicator -->
       <div id="suggestionsLoading" class="hidden py-4 text-center space-y-2">
         <div class="inline-block animate-spin rounded-full h-6 w-6 border-3 border-emerald-500 border-t-transparent"></div>
-        <p class="text-xs opacity-70">Generiere ein passendes Rezept mit Zubereitung...</p>
+        <p class="text-xs opacity-70" id="suggestionsLoadingText">Generiere ein passendes Rezept mit Zubereitung...</p>
       </div>
 
       <!-- Vorschlag Anzeige Container -->
@@ -486,6 +486,7 @@
     let dayData = { meals: [], sports: [], weight: null, bodyPhoto: null };
     let currentPendingMeal = null;
     let currentBase64Image = null;
+    let currentGeneratedRecipe = null; // Speichert das aktuell angezeigte Rezept für nachträgliche KI-Anpassungen
 
     function isDateTrainingDay(dateStr) {
       const d = new Date(dateStr);
@@ -1051,7 +1052,7 @@
       document.getElementById('fatBar').style.width = `${Math.min(100, (eatenF / targets.fat) * 100)}%`;
     }
 
-    // KI-REZEPT VORSCHLÄGE BERECHNUNG (MIT FREITEXT, REROLL & VOLLSTÄNDIGER ZUBEREITUNG)
+    // KI-REZEPT VORSCHLÄGE BERECHNUNG & NACHTRÄGLICHE MODIFIKATION
     async function fetchMealSuggestions() {
       if (!profile.apiKey) {
         alert("Es ergibt Sinn, zuerst deinen Gemini API Key unter 'Profil' einzutragen.");
@@ -1061,7 +1062,9 @@
 
       const suggestionsContainer = document.getElementById('suggestionsContainer');
       const suggestionsLoading = document.getElementById('suggestionsLoading');
+      const loadingText = document.getElementById('suggestionsLoadingText');
       
+      loadingText.textContent = "Generiere ein passendes Rezept mit Zubereitung...";
       suggestionsContainer.classList.add('hidden');
       suggestionsLoading.classList.remove('hidden');
 
@@ -1113,22 +1116,69 @@ Kontext & Budgetierung:
 Zielwerte für dieses Gericht (~${targetCalsForMeal} kcal):
 - Kalorien: ca. ${targetCalsForMeal} kcal
 - Protein: ca. ${targetPForMeal}g
-- Kohlenhydrate: ca. ${targetCForMeal}g
+- Kohlenhydrate: ca. ${targetCalsForMeal}g
 - Fett: ca. ${targetFForMeal}g`;
 
       if (userPreferences) {
         prompt += `\n\nBesondere Kundenwünsche/Präferenzen für das Gericht: "${userPreferences}". Berücksichtige dies unbedingt beim Rezept!`;
       }
 
-      prompt += `\n\nGib eine vollständige Zutatenliste mit exakten Mengenangaben (z.B. als Liste "200g Hähnchenbrust, 1 EL Olivenöl...") sowie eine Schritt-für-Schritt-Zubereitungsanleitung an.
+      prompt += `\n\nGib eine vollständige Zutatenliste mit exakten Mengenangaben sowie eine Schritt-für-Schritt-Zubereitungsanleitung an.
 Gib das Ergebnis ausschließlich als JSON zurück.`;
+
+      await callGeminiForRecipe(prompt, nextMealName);
+    }
+
+    // ANPASSUNG EINES BEREITS GENERIERTEN REZEPTS
+    async function modifyCurrentRecipe() {
+      const modifyInput = document.getElementById('recipeModifyInput');
+      const modifyText = modifyInput ? modifyInput.value.trim() : '';
+
+      if (!modifyText) {
+        alert("Es ergibt Sinn, eine Änderung einzugeben (z. B. 'habe keine Eier da' oder 'weniger Zeit').");
+        return;
+      }
+
+      if (!currentGeneratedRecipe) {
+        alert("Generiere zuerst ein Rezept, das angepasst werden kann.");
+        return;
+      }
+
+      const suggestionsContainer = document.getElementById('suggestionsContainer');
+      const suggestionsLoading = document.getElementById('suggestionsLoading');
+      const loadingText = document.getElementById('suggestionsLoadingText');
+
+      loadingText.textContent = "Passe das Rezept für dich an...";
+      suggestionsContainer.classList.add('hidden');
+      suggestionsLoading.classList.remove('hidden');
+
+      let prompt = `Du bist ein flexibler Fitness-Koch. Passe folgendes bestehendes Rezept basierend auf der Änderung des Nutzers an.
+
+Bisheriges Rezept:
+Name: ${currentGeneratedRecipe.meal}
+Beschreibung: ${currentGeneratedRecipe.description}
+Zutaten: ${JSON.stringify(currentGeneratedRecipe.ingredients)}
+Zubereitung: ${JSON.stringify(currentGeneratedRecipe.instructions)}
+Nährwerte: ${currentGeneratedRecipe.calories} kcal, ${currentGeneratedRecipe.protein}g P, ${currentGeneratedRecipe.carbs}g C, ${currentGeneratedRecipe.fat}g F
+
+Kundenwunsch zur Änderung: "${modifyText}"
+
+Passe die Zutaten, die Zubereitungszeit, die Anleitung und die Nährwerte (Kalorien, Protein, Carbs, Fett) entsprechend an.
+Gib das Ergebnis ausschließlich als JSON zurück.`;
+
+      await callGeminiForRecipe(prompt, currentGeneratedRecipe.mealCategory || "Mahlzeit");
+    }
+
+    async function callGeminiForRecipe(promptText, mealCategory) {
+      const suggestionsContainer = document.getElementById('suggestionsContainer');
+      const suggestionsLoading = document.getElementById('suggestionsLoading');
 
       try {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${profile.apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
+            contents: [{ parts: [{ text: promptText }] }],
             generationConfig: {
               responseMimeType: "application/json",
               responseSchema: {
@@ -1160,79 +1210,98 @@ Gib das Ergebnis ausschließlich als JSON zurück.`;
         if (data.error) throw new Error(data.error.message);
 
         const recipe = JSON.parse(data.candidates[0].content.parts[0].text);
+        recipe.mealCategory = mealCategory;
+        currentGeneratedRecipe = recipe;
 
-        const ingredientsHtml = recipe.ingredients.map(ing => `<li class="flex items-center gap-1.5"><span class="text-emerald-400">•</span> ${ing}</li>`).join('');
-        const instructionsHtml = recipe.instructions.map((step, idx) => `
-          <div class="flex gap-2">
-            <span class="font-bold text-emerald-400 text-xs">${idx + 1}.</span>
-            <span>${step}</span>
-          </div>
-        `).join('');
-
-        suggestionsContainer.innerHTML = `
-          <div class="p-4 rounded-xl border space-y-4 bg-slate-900/40">
-            <div>
-              <div class="flex justify-between items-start gap-2">
-                <div>
-                  <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block mb-0.5">Vorschlag für: ${nextMealName} (${recipe.prepTime})</span>
-                  <h3 class="font-black text-base text-emerald-400">${recipe.meal}</h3>
-                </div>
-                <span class="text-xs font-black px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">${recipe.calories} kcal</span>
-              </div>
-              <p class="text-xs opacity-70 mt-1">${recipe.description}</p>
-            </div>
-
-            <!-- Nährwert-Übersicht -->
-            <div class="grid grid-cols-3 gap-2 text-center text-xs">
-              <div class="p-1.5 rounded-lg border border-slate-700 bg-slate-950/50">
-                <span class="block text-[10px] opacity-60">Protein</span>
-                <span class="font-bold text-blue-400">${recipe.protein}g</span>
-              </div>
-              <div class="p-1.5 rounded-lg border border-slate-700 bg-slate-950/50">
-                <span class="block text-[10px] opacity-60">Carbs</span>
-                <span class="font-bold text-amber-400">${recipe.carbs}g</span>
-              </div>
-              <div class="p-1.5 rounded-lg border border-slate-700 bg-slate-950/50">
-                <span class="block text-[10px] opacity-60">Fett</span>
-                <span class="font-bold text-rose-400">${recipe.fat}g</span>
-              </div>
-            </div>
-
-            <!-- Zutaten -->
-            <div class="text-xs space-y-1.5 border-t pt-3 border-slate-700/50">
-              <span class="font-bold block text-[10px] uppercase tracking-wider opacity-60">🛒 Zutaten & Mengen</span>
-              <ul class="grid grid-cols-1 gap-1 text-xs opacity-90">
-                ${ingredientsHtml}
-              </ul>
-            </div>
-
-            <!-- Zubereitung -->
-            <div class="text-xs space-y-2 border-t pt-3 border-slate-700/50">
-              <span class="font-bold block text-[10px] uppercase tracking-wider opacity-60">👨‍🍳 Zubereitung</span>
-              <div class="space-y-1.5 opacity-90">
-                ${instructionsHtml}
-              </div>
-            </div>
-
-            <!-- Action Buttons: Eintragen & Reroll -->
-            <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-700/50">
-              <button onclick="fetchMealSuggestions()" class="col-span-1 py-2.5 rounded-xl font-bold text-xs border border-slate-600 hover:bg-slate-700/40 transition flex items-center justify-center gap-1 active:scale-95">
-                <span>🎲</span> Reroll
-              </button>
-              <button onclick="addSuggestedMeal('${recipe.meal.replace(/'/g, "\\'")}', ${recipe.calories}, ${recipe.protein}, ${recipe.carbs}, ${recipe.fat})" class="col-span-2 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center justify-center gap-1.5 shadow-lg active:scale-95">
-                <span>➕</span> In Log eintragen
-              </button>
-            </div>
-          </div>
-        `;
+        renderRecipeUI(recipe);
 
         suggestionsLoading.classList.add('hidden');
         suggestionsContainer.classList.remove('hidden');
 
       } catch (err) {
-        alert("Fehler bei Rezept-Vorschlag: " + err.message);
+        alert("Fehler bei Rezept-Erstellung/Anpassung: " + err.message);
         suggestionsLoading.classList.add('hidden');
       }
+    }
+
+    function renderRecipeUI(recipe) {
+      const suggestionsContainer = document.getElementById('suggestionsContainer');
+
+      const ingredientsHtml = recipe.ingredients.map(ing => `<li class="flex items-center gap-1.5"><span class="text-emerald-400">•</span> ${ing}</li>`).join('');
+      const instructionsHtml = recipe.instructions.map((step, idx) => `
+        <div class="flex gap-2">
+          <span class="font-bold text-emerald-400 text-xs">${idx + 1}.</span>
+          <span>${step}</span>
+        </div>
+      `).join('');
+
+      suggestionsContainer.innerHTML = `
+        <div class="p-4 rounded-xl border space-y-4 bg-slate-900/40">
+          <div>
+            <div class="flex justify-between items-start gap-2">
+              <div>
+                <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block mb-0.5">Vorschlag für: ${recipe.mealCategory} (${recipe.prepTime})</span>
+                <h3 class="font-black text-base text-emerald-400">${recipe.meal}</h3>
+              </div>
+              <span class="text-xs font-black px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">${recipe.calories} kcal</span>
+            </div>
+            <p class="text-xs opacity-70 mt-1">${recipe.description}</p>
+          </div>
+
+          <!-- Nährwert-Übersicht -->
+          <div class="grid grid-cols-3 gap-2 text-center text-xs">
+            <div class="p-1.5 rounded-lg border border-slate-700 bg-slate-950/50">
+              <span class="block text-[10px] opacity-60">Protein</span>
+              <span class="font-bold text-blue-400">${recipe.protein}g</span>
+            </div>
+            <div class="p-1.5 rounded-lg border border-slate-700 bg-slate-950/50">
+              <span class="block text-[10px] opacity-60">Carbs</span>
+              <span class="font-bold text-amber-400">${recipe.carbs}g</span>
+            </div>
+            <div class="p-1.5 rounded-lg border border-slate-700 bg-slate-950/50">
+              <span class="block text-[10px] opacity-60">Fett</span>
+              <span class="font-bold text-rose-400">${recipe.fat}g</span>
+            </div>
+          </div>
+
+          <!-- Zutaten -->
+          <div class="text-xs space-y-1.5 border-t pt-3 border-slate-700/50">
+            <span class="font-bold block text-[10px] uppercase tracking-wider opacity-60">🛒 Zutaten & Mengen</span>
+            <ul class="grid grid-cols-1 gap-1 text-xs opacity-90">
+              ${ingredientsHtml}
+            </ul>
+          </div>
+
+          <!-- Zubereitung -->
+          <div class="text-xs space-y-2 border-t pt-3 border-slate-700/50">
+            <span class="font-bold block text-[10px] uppercase tracking-wider opacity-60">👨‍🍳 Zubereitung</span>
+            <div class="space-y-1.5 opacity-90">
+              ${instructionsHtml}
+            </div>
+          </div>
+
+          <!-- NACHTRÄGLICHE ANPASSUNG DIREKT HIER EINGEBEN -->
+          <div class="border-t pt-3 border-slate-700/50 space-y-2">
+            <label class="text-xs font-semibold block opacity-80">🛠️ Rezept anpassen (z. B. Zutat fehlt / weniger Zeit):</label>
+            <div class="flex gap-2">
+              <input type="text" id="recipeModifyInput" placeholder="Z. B. Habe kein Hähnchen da / Nur 10 Min Zeit..." class="w-full border p-2 rounded-xl text-xs outline-none bg-slate-900 border-slate-700 text-white">
+              <button onclick="modifyCurrentRecipe()" class="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold whitespace-nowrap transition active:scale-95 flex items-center gap-1">
+                <span>🔄</span> Anpassen
+              </button>
+            </div>
+          </div>
+
+          <!-- Action Buttons: Eintragen & Reroll -->
+          <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-700/50">
+            <button onclick="fetchMealSuggestions()" class="col-span-1 py-2.5 rounded-xl font-bold text-xs border border-slate-600 hover:bg-slate-700/40 transition flex items-center justify-center gap-1 active:scale-95">
+              <span>🎲</span> Reroll
+            </button>
+            <button onclick="addSuggestedMeal('${recipe.meal.replace(/'/g, "\\'")}', ${recipe.calories}, ${recipe.protein}, ${recipe.carbs}, ${recipe.fat})" class="col-span-2 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center justify-center gap-1.5 shadow-lg active:scale-95">
+              <span>➕</span> In Log eintragen
+            </button>
+          </div>
+        </div>
+      `;
     }
 
     window.addSuggestedMeal = function(name, calories, protein, carbs, fat) {
